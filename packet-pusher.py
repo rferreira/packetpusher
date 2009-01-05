@@ -4,9 +4,6 @@ Packet Pusher - Network speed tester
 Author: Rafael Ferreira <raf@ophion.org>
 Copyright: GPL
 
-Please note:
-	- 
-
 TODO:
  * Add version validation section
  * Add packet ordering and checksumming
@@ -16,10 +13,10 @@ TODO:
 import socket
 import sys
 import optparse
-import pprint
-import pickle
 import time
 import gc
+import struct
+
 
 # General Variables
 
@@ -28,10 +25,51 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PAYLOAD = 1024 # in bytes
 RECEIVE_BUFFER = 1024
 MAX_PACKETS = 100000
-VERSION='0.1a'
+VERSION="0.1a"
+PROTOCOL_VERSION=1
 
-DESC= "Packet Pusher - Network speed tester v%s" % VERSION
+DESC= "Packet Pusher - Network speed tester"
 
+
+class ControlPacket(object):
+	""" Special packet used to send test run information from client to server """
+
+	format = "3l17s"
+	size = struct.calcsize(format)
+
+	def __init__(self):
+		pass
+	
+	def set(self,packet_size, packet_count, client_info):
+		self.packet_size = packet_size
+		self.packet_count = packet_count
+		self.protocol_version  = PROTOCOL_VERSION
+		self.client_info = client_info
+
+	def pack(self):
+		""" returns a string representation of the packet ready for sending """
+		return(struct.pack(self.format,self.packet_size,self.packet_count,self.protocol_version,self.client_info ))
+	def unpack(self,data):
+		""" parses the raw data stream and populates the control packet object"""
+		t = struct.unpack(self.format,data)
+		self.packet_size = t[0]
+		self.packet_count = t[1]
+		self.protocol_version = t[2]
+		self.client_info = t[3]
+
+	def __str__(self):
+		str = "Test options {\n"
+		str += "\tPacket size: %d\n" % self.packet_size
+		str += "\tPacket count: %d\n" % self.packet_count
+		str += "\tProtocol version: %d\n" % self.protocol_version
+		str += "\tClient info: %s\n" % self.client_info
+		str += "}\n"
+		return(str)
+
+
+
+		
+		
 class InfoBucket(object):
 	""" Simple wrapper objects for storing test run telemetry"""
 	pass
@@ -62,24 +100,20 @@ class PacketProducer(EndPoint):
 		""" start control logic and runs the test"""
 
 		# control logic:
-		test_options = { 
-			'PACKET_SIZE': self.size,
-			'PACKET_COUNT': self.count,
-			'PROTOCOL_VERSION': VERSION,
-			'CLIENT' : socket.gethostname()
-
-		}
+		cp = ControlPacket()
+		cp.set(self.size,self.count,socket.gethostname())
 
 
 		print("negotiating test with server...")
-		pprint.pprint(test_options)
+		# print(cp)
 
 		try:
 			# print(pickle.dumps(test_options))
-			self.socket.send(pickle.dumps(test_options))
+			self.socket.send(cp.pack())
 
-		except 	Exception:
-			print("Sorry but a test run could not be negotiated with the server")
+		except 	Exception,e:
+			print("Sorry but a test run could not be negotiated with the server. Reason:")
+			print(e)
 			sys.exit(1)
 
 	
@@ -120,59 +154,63 @@ class PacketConsumer(EndPoint):
 		
 		print("Packet pusher server started on %s:%s" %  (self.addr) )
 
-		default_buffer = self.socket.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)
+		# default_buffer = self.socket.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)
 
 		while(1):
 			print("")
 			print("Waiting for client connections")
 			print("")
 
-			self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, default_buffer )
+			# self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, default_buffer )
 			self.socket.settimeout(None)
 
 			# handling control:
-			data = self.socket.recv(1024)
-			#print(data)
-			test_options = pickle.loads(data)
+			test_options = ControlPacket()
+			test_options.unpack(self.socket.recv(ControlPacket.size))
 
 			if test_options is not None:
 				print("Run options:")
-				pprint.pprint(test_options)
+				print(test_options)
 
 				r = InfoBucket()
 
 				# data structures:
 				r.bytes_rcv = 0
 				r.packets_rcv = 0
-				r.packet_count = int(test_options['PACKET_COUNT'])
-				r.packet_size = int(test_options['PACKET_SIZE'])
+				r.packet_count = int(test_options.packet_count)
+				r.packet_size = int(test_options.packet_size)
 
 				
 				# configuring rcv buffer size
-				self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, r.packet_size)
+				# this have been disabled because it somehow decreases performance
+				# self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, r.packet_size)
 
 				# after 5 inactive seconds we give up on the test
-				self.socket.settimeout(1)
-
-				# Test run starting:
-				r.start_time = time.time()
+				self.socket.settimeout(5)
 
 				# disabling the gc
 				gc.disable()
+
+				# Test run starting:
+				r.start_time = time.time()
 				while( r.packets_rcv < r.packet_count ):
 				
 					try: 
-						data = self.socket.recv(r.packet_size)
+						data, addr  = self.socket.recvfrom(r.packet_size)
 						r.bytes_rcv += len(data)
 						r.packets_rcv += 1
 						print '.',
+						
+						# we always set the stop time to the last 
+						# received packet 
+						r.stop_time = time.time()
 					except socket.timeout:
 						break
 
+				
 				gc.enable()
 
 				# test done
-				r.stop_time = time.time()
 				self._print_results(r)
 
 	def _print_results(self,i):
@@ -194,14 +232,8 @@ class PacketConsumer(EndPoint):
 		print("\tTotal packets received: %d" % i.packets_rcv)
 		print("\tTotal time elapsed: %.2f seconds"% time_elapsed)
 		print("\tUDP success percentage: %d" % success_percent)
-		print("")
 		print("\tData throughput: %.2f MB/s" % tr)
 		print("}")
-
-
-
-
-		
 
 
 
@@ -209,7 +241,7 @@ class PacketConsumer(EndPoint):
 
 def main():
 	
-	parser = optparse.OptionParser(description=DESC)
+	parser = optparse.OptionParser(description=DESC,version=VERSION)
 
 	parser.add_option("-s","--server", dest="server", help="runs in server mode", action="store_true", default=False)
 	parser.add_option("-c","--client", dest="client", help="runs in client mode", action="store_true", default=False)
