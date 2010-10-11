@@ -11,7 +11,7 @@ Features:
 
 ## Install
 
-To use PacketPusher you will need:
+To use packerpusher you will need:
 
 	1. Python 2.6 or later (www.python.org)
 	2. prettytable (easy_install prettytable)
@@ -19,7 +19,7 @@ To use PacketPusher you will need:
 
 ## Running it:
 
-The simplest way to run packetpusher is to run both server (the receiving the generate packets) and client (the one generating the traffic) on the same machine.
+The simplest way to run packetpusher is to run both server (the one receiving the generate packets) and client (the one generating the traffic) on the same machine.
 
 To start the server, in a terminal window type:
 
