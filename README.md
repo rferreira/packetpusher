@@ -3,7 +3,7 @@
 Packetpusher is a network traffic generator intended to break most home networking gear. It tries to be as clever as possible to generate the most UDP traffic and give you *mostly* relevant telemetry (see example report below).
 
 Features:
-	* Asynchronous server 
+	* Asynchronous server - I hear that's hot nowadays
 	* Multiprocess client that can fully utilize multi processor machines
 	* Fairly decent telemetry
 	* Simple
