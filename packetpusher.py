@@ -2,7 +2,7 @@
 """
 Packet Pusher - Network speed tester
 Author: Rafael Ferreira <raf@ophion.org>
-Copyright: GPL
+License: MIT/X11
 
 TODO:
  * Add version validation section
@@ -25,7 +25,6 @@ import prettytable
 
 
 # General Variables
-
 DEFAULT_PORT = 9999
 DEFAULT_HOST = "127.0.0.1"
 VERSION="0.4"
