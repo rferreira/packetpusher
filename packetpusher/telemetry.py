@@ -1,4 +1,4 @@
-import logging, sys
+import logging, sys, time
 
 log = logging.getLogger('pp')
 
@@ -23,7 +23,7 @@ class TBucket(object):
             
 
     def time_elapsed(self):
-        return round(self.store[TBucket.END_TIME] - self.store[TBucket.START_TIME],4)
+        return round(self.store[TBucket.END_TIME] - self.store[TBucket.START_TIME],2)
         
     def transfer_rate(self, in_mega_bytes=True):
         tr = (self.store[TBucket.BYTES_OUT] + self.store[TBucket.BYTES_IN])/self.time_elapsed()

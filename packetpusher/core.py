@@ -4,20 +4,13 @@ import optparse
 import time
 import struct
 import asyncore
-import logging
-import threading
-import multiprocessing
+import logging, locale
+import threading, multiprocessing
 from collections import deque
-import prettytable
 
-log = logging.getLogger(__name__)
+from packetpusher.telemetry import TBucket
+from packetpusher.protocol import Packet
 
-# General Variables
-DEFAULT_PORT = 9999
-DEFAULT_HOST = "127.0.0.1"
-LOG_FORMAT = '[%(asctime)s] [%(processName)s] %(levelname)s: %(message)s'
-
-DESC= "Packet Pusher - Network speed tester"
 log = logging.getLogger('pp')
             
 class Node(asyncore.dispatcher):
@@ -109,7 +102,7 @@ class Node(asyncore.dispatcher):
         self.stats.end()
         log.info('network node stopped')
         
-    def send(self,packet, flush = False):
+    def send(self,packet, flush=False):
         self.buffer_out.append(packet)
         
         if len(self.buffer_out) > 50000 or flush is True:   
@@ -121,45 +114,45 @@ class Node(asyncore.dispatcher):
         while 1:
             time.sleep(30)
             log.info('packets in: %d packets out: %d uptime: %d sec' % (self.packets_rcv, self.packets_sent,  time.time() - self.stats.get_start() ))
-
         
-
 def worker(node):
     node.start()
-    
-
-class PacketPusher(object):
-    pass
                     
-def packet_pusher(host_address,host_port,packet_count, results, start_event,timeout):           
+# Helper functions:
+
+def start_server(host, port):
+    node =  Node(host,port,client=False)
+    node.start()
+
+def _process(host_address,host_port,packet_count, results, start_event,timeout):           
     node = Node(host=host_address,port=host_port, client=True)
     t = threading.Thread(target=worker, name='node',args=(node,))
     t.setDaemon(True)
     t.start()
-    
+
     # waiting for the go-ahead:
     log.info('started, waiting on go-head')
-    
+
     start_event.wait()
-    
+
     r = TBucket()
     r.start()
-    
+
     seq = 0
     node.send(Packet(seq, packet_count, command=Packet.START), flush=True)
-    
+
     # neva, neva neva use range() for this
     while True:
         node.send(Packet(seq,packet_count,data= 'x' * 1000))        
 
         if packet_count > 0 and seq == packet_count or time.time() - r.get_start() > timeout:
             break               
-                        
+
         seq += 1
-    
+
     # sending last packet
     node.send(Packet(seq+1, packet_count, command=Packet.END), flush=True)
-                    
+
     # end clock
     r.end()
 
@@ -171,3 +164,33 @@ def packet_pusher(host_address,host_port,packet_count, results, start_event,time
 
     node.stop() 
     results.append(r)
+
+        
+def start_client(host_address, host_port, num_workers, packet_count, timeout):   
+    """
+    start_client(host_address, host_port, num_workers, packet_count, options.timeout)   
+    """        
+    manager = multiprocessing.Manager()
+    start_event = multiprocessing.Event()
+
+    results = manager.list()
+    workers = []
+
+    for x in range( num_workers ):
+        p = multiprocessing.Process(target=_process,name='process-%d' % x, args=(host_address,host_port,packet_count,results,start_event,timeout))
+        p.start()
+
+        # storing the process and the result bucket
+        workers.append(p)
+
+    time.sleep(5)
+    log.info('all processes started, starting test in 5 seconds...')
+    time.sleep(5)
+    start_event.set()
+
+    log.info('test running...')
+
+    for p in workers:
+        p.join()
+
+    return results
